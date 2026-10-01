@@ -1,0 +1,16 @@
+{
+  "name": "exam-platform-admin-dashboard-v2",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
+  "scripts": {
+    "build": "npm run prisma:generate --workspace=exam-platform-api && npm run build --workspace=exam-platform-web && npm run build --workspace=exam-platform-api",
+    "test": "npm test --workspace=exam-platform-api",
+    "dev": "node scripts/dev.js",
+    "dev:frontend": "npm run dev --workspace=exam-platform-web",
+    "dev:backend": "npm run dev --workspace=exam-platform-api"
+  }
+}

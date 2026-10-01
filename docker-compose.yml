@@ -1,0 +1,31 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment: {POSTGRES_DB: examplatform, POSTGRES_USER: examuser, POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}}
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck: {test: ["CMD-SHELL","pg_isready -U examuser -d examplatform"], interval: 5s, timeout: 5s, retries: 10}
+  redis:
+    image: redis:7-alpine
+    healthcheck: {test: ["CMD","redis-cli","ping"], interval: 5s, timeout: 5s, retries: 10}
+  backend-1: &backend
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql://examuser:${DB_PASSWORD:-changeme}@postgres:5432/examplatform?schema=public
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:-replace-me-with-a-long-secret}
+      PORT: 8080
+      CORS_ORIGIN: http://localhost:3000
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-Admin12345!}
+    depends_on: {postgres: {condition: service_healthy}, redis: {condition: service_healthy}}
+  backend-2: *backend
+  nginx:
+    image: nginx:alpine
+    volumes: [./docker/nginx.conf:/etc/nginx/nginx.conf:ro]
+    ports: ["8080:80"]
+    depends_on: [backend-1,backend-2]
+  frontend:
+    build: ./frontend
+    ports: ["3000:3000"]
+    depends_on: [nginx]
+volumes: {pgdata: {}}

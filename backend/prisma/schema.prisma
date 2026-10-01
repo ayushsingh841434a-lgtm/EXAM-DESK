@@ -1,0 +1,211 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  STUDENT
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  PENDING_VERIFICATION
+}
+
+enum TestStatus {
+  DRAFT
+  LIVE
+  PAUSED
+  ENDED
+}
+
+enum AttemptStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  SUBMITTED
+  AUTO_SUBMITTED
+  CANCELLED_VIOLATION
+  TERMINATED_CHEATING
+}
+
+enum ViolationType {
+  TAB_SWITCH
+  WINDOW_BLUR
+  FULLSCREEN_EXIT
+  COPY_PASTE_ATTEMPT
+  DEVTOOLS_SUSPECTED
+  PRINT_ATTEMPT
+  COPY_ATTEMPT
+  PASTE_ATTEMPT
+  CONTEXT_MENU_ATTEMPT
+  MULTIPLE_SESSION
+}
+
+model User {
+  id                String       @id @default(uuid())
+  name              String
+  email             String       @unique
+  rollNumber        String?      @unique
+  passwordHash      String
+  role              Role         @default(STUDENT)
+  emailVerified     Boolean      @default(false)
+  status            UserStatus   @default(PENDING_VERIFICATION)
+  authVersion       Int          @default(0)
+  lastLoginAt       DateTime?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  attempts          Attempt[]
+  auditLogs         AuditLog[]
+  emailVerifyTokens EmailToken[]
+  examViolations    ExamViolation[]
+  passwordResetOtps PasswordResetOtp[]
+
+  @@index([role, status])
+}
+
+model PasswordResetOtp {
+  id              String   @id @default(uuid())
+  studentId       String
+  requestId       String   @unique
+  otpHash         String
+  expiresAt       DateTime
+  attempts        Int      @default(0)
+  usedAt          DateTime?
+  verifiedAt      DateTime?
+  resetTokenHash  String?
+  resetExpiresAt  DateTime?
+  createdAt       DateTime @default(now())
+  student         User     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([studentId, createdAt])
+  @@index([expiresAt])
+}
+
+model EmailToken {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique
+  type      String
+  expiresAt DateTime
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Test {
+  id               String      @id @default(uuid())
+  title            String
+  description      String?
+  duration         Int
+  status           TestStatus  @default(DRAFT)
+  startTime        DateTime
+  endTime          DateTime
+  negativeMarking  Boolean     @default(false)
+  violationLimit   Int         @default(3)
+  maxAttempts      Int         @default(1)
+  showResultsPolicy String     @default("IMMEDIATE")
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+  questions        Question[]
+  attempts         Attempt[]
+
+  @@index([status, startTime, endTime])
+}
+
+model Question {
+  id            String   @id @default(uuid())
+  testId        String
+  questionText  String
+  marks         Float
+  negativeMarks Float    @default(0)
+  explanation   String?
+  order         Int      @default(0)
+  createdAt     DateTime @default(now())
+  test          Test     @relation(fields: [testId], references: [id], onDelete: Cascade)
+  options       Option[]
+  answers       Answer[]
+
+  @@index([testId])
+}
+
+model Option {
+  id          String   @id @default(uuid())
+  questionId  String
+  optionText  String
+  isCorrect   Boolean  @default(false)
+  order       Int      @default(0)
+  question    Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  answers     Answer[]
+
+  @@index([questionId])
+}
+
+model Attempt {
+  id               String         @id @default(uuid())
+  testId           String
+  userId           String
+  startedAt        DateTime?
+  submittedAt      DateTime?
+  status           AttemptStatus  @default(NOT_STARTED)
+  score            Float?
+  violationCount   Int            @default(0)
+  questionOrderSeed Int          @default(0)
+  serverEndsAt     DateTime?
+  sessionToken     String?
+  heartbeatAt      DateTime?
+  terminationReason String?
+  user             User           @relation(fields: [userId], references: [id])
+  test             Test           @relation(fields: [testId], references: [id])
+  answers          Answer[]
+  violations       ExamViolation[]
+
+  @@index([testId, status])
+  @@index([userId])
+}
+
+model Answer {
+  id              String    @id @default(uuid())
+  attemptId       String
+  questionId     String
+  selectedOptionId String?
+  savedAt         DateTime  @updatedAt
+  attempt         Attempt   @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question       Question  @relation(fields: [questionId], references: [id])
+  selectedOption Option?   @relation(fields: [selectedOptionId], references: [id])
+
+  @@unique([attemptId, questionId])
+  @@index([attemptId])
+}
+
+model ExamViolation {
+  id        String       @id @default(uuid())
+  attemptId String
+  studentId String
+  type      ViolationType
+  timestamp DateTime     @default(now())
+  metadata  Json?
+  attempt   Attempt      @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  student   User         @relation(fields: [studentId], references: [id])
+
+  @@index([attemptId, type])
+  @@index([studentId, timestamp])
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  actorId   String
+  action    String
+  targetType String
+  targetId  String
+  metadata  Json?
+  createdAt DateTime @default(now())
+  actor     User     @relation(fields: [actorId], references: [id])
+
+  @@index([actorId, createdAt])
+}
