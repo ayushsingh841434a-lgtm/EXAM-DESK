@@ -21,7 +21,7 @@ function Login({ onLogin }: { onLogin: (u: any) => void }) {
   const [requestId, setRequestId] = useState('');
   const [resetToken, setResetToken] = useState('');
   const [verificationPath, setVerificationPath] = useState('');
-  const [notice, setNotice] = useState('');
+  const [notice, setNotice] = useState(() => new URLSearchParams(window.location.search).has('verified') ? 'Email verified. Sign in to continue.' : '');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const [showPassword, setShowPassword] = useState(false);

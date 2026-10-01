@@ -71,3 +71,25 @@ export async function sendPasswordResetOtp(email: string, otp: string): Promise<
     text: `Your password reset OTP is: ${otp}\n\nThis OTP will expire in 10 minutes.\n\nIf you did not request a password reset, ignore this email.`,
   });
 }
+
+export async function sendStudentVerificationEmail(email: string, token: string): Promise<void> {
+  const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, SMTP_FROM, API_PUBLIC_URL } = process.env;
+  if (!SMTP_HOST || !SMTP_PORT || !SMTP_FROM || !API_PUBLIC_URL) {
+    throw new Error('SMTP_HOST, SMTP_PORT, SMTP_FROM, and API_PUBLIC_URL must be configured');
+  }
+
+  const transporter = nodemailer.createTransport({
+    host: SMTP_HOST,
+    port: Number(SMTP_PORT),
+    secure: process.env.SMTP_SECURE === 'true',
+    ...(SMTP_USER && SMTP_PASSWORD ? { auth: { user: SMTP_USER, pass: SMTP_PASSWORD } } : {}),
+  });
+  const verificationUrl = `${API_PUBLIC_URL.replace(/\/$/, '')}/api/auth/verify-email/${encodeURIComponent(token)}`;
+
+  await transporter.sendMail({
+    from: SMTP_FROM,
+    to: email,
+    subject: 'Exam Platform - Verify your email',
+    text: `Verify your student account by opening this link:\n\n${verificationUrl}\n\nThis link expires in 24 hours.`,
+  });
+}

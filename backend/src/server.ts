@@ -8,7 +8,7 @@ import rateLimit from 'express-rate-limit';
 import crypto from 'crypto';
 import { Prisma, PrismaClient, Role, TestStatus, AttemptStatus, ViolationType } from '@prisma/client';
 import { z } from 'zod';
-import { canRequestOtp, canVerifyOtp, generateOtp, hashOtp, hashResetToken, normalizeEmail, normalizeName, normalizeRollNumber, secureHashEquals, sendPasswordResetOtp, studentIdentityMatches, verifyOtp } from './authSecurity';
+import { canRequestOtp, canVerifyOtp, generateOtp, hashOtp, hashResetToken, normalizeEmail, normalizeName, normalizeRollNumber, secureHashEquals, sendPasswordResetOtp, sendStudentVerificationEmail, studentIdentityMatches, verifyOtp } from './authSecurity';
 
 const STRICT_TERMINATION_TYPES = new Set<ViolationType | string>([
   ViolationType.TAB_SWITCH,
@@ -98,9 +98,18 @@ app.post('/api/auth/register', async (req, res) => {
     const duplicate = await prisma.user.findFirst({ where: { OR: [{ email }, { rollNumber }] }, select: { email: true, rollNumber: true } });
     if (duplicate) return res.status(409).json({ error: duplicate.email === email ? 'Email already registered' : 'Roll number already registered' });
     const u = await prisma.user.create({ data: { name, email, rollNumber, passwordHash: await bcrypt.hash(b.password, 12), status: 'PENDING_VERIFICATION' } });
-    const token = crypto.randomUUID();
-    await prisma.emailToken.create({ data: { userId: u.id, token, type: 'VERIFY', expiresAt: new Date(Date.now() + 86_400_000) } });
-    res.status(201).json({ message: 'Registered. Verify the account before login.', userId: u.id, ...(process.env.NODE_ENV !== 'production' ? { devVerifyPath: `/api/auth/dev-verify/${u.id}` } : {}) });
+    const token = crypto.randomBytes(32).toString('base64url');
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    await prisma.emailToken.create({ data: { userId: u.id, token: tokenHash, type: 'VERIFY', expiresAt: new Date(Date.now() + 86_400_000) } });
+    if (process.env.NODE_ENV === 'production') {
+      try {
+        await sendStudentVerificationEmail(email, token);
+      } catch {
+        await prisma.user.delete({ where: { id: u.id } });
+        return res.status(503).json({ error: 'Verification email could not be sent. Please try again later.' });
+      }
+    }
+    res.status(201).json({ message: process.env.NODE_ENV === 'production' ? 'Registration complete. Check your email for a verification link before signing in.' : 'Registered. Verify the account before login.', userId: u.id, ...(process.env.NODE_ENV !== 'production' ? { devVerifyPath: `/api/auth/dev-verify/${u.id}` } : {}) });
   } catch (e: any) {
     if (e?.code === 'P2002') return res.status(409).json({ error: 'Email or roll number already registered' });
     res.status(400).json({ error: e instanceof Error ? e.message : 'Invalid request' });
@@ -212,6 +221,22 @@ app.post('/api/auth/logout', anyUser, async (req: AuthReq, res) => {
   await prisma.user.update({ where: { id: req.user!.id }, data: { authVersion: { increment: 1 } } });
   clearSessionCookie(res);
   res.status(204).end();
+});
+
+app.get('/api/auth/verify-email/:token', async (req, res) => {
+  const tokenHash = crypto.createHash('sha256').update(String(req.params.token)).digest('hex');
+  const token = await prisma.emailToken.findFirst({ where: { token: tokenHash, type: 'VERIFY', expiresAt: { gt: new Date() } }, select: { id: true, userId: true } });
+  if (!token) return res.status(400).send('This verification link is invalid or expired.');
+  await prisma.$transaction([
+    prisma.user.update({ where: { id: token.userId }, data: { emailVerified: true, status: 'ACTIVE' } }),
+    prisma.emailToken.delete({ where: { id: token.id } }),
+  ]);
+  if (process.env.FRONTEND_URL) {
+    const frontendUrl = new URL(process.env.FRONTEND_URL);
+    frontendUrl.searchParams.set('verified', '1');
+    return res.redirect(frontendUrl.toString());
+  }
+  res.send('Email verified. Return to the exam platform and sign in.');
 });
 
 app.get('/api/auth/dev-verify/:userId', async (req, res) => {
