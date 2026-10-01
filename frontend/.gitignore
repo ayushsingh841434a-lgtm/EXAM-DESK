@@ -1,0 +1,16 @@
+# Dependencies
+node_modules/
+
+# Vite build and cache
+dist/
+.vite/
+coverage/
+
+# Local environment overrides
+.env
+.env.*
+!.env.example
+
+# Logs and TypeScript incremental state
+*.log
+*.tsbuildinfo

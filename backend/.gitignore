@@ -1,0 +1,13 @@
+# Dependencies and compiled TypeScript
+node_modules/
+dist/
+coverage/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Local logs and compiler state
+*.log
+*.tsbuildinfo
