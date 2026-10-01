@@ -118,8 +118,9 @@ app.post('/api/auth/login', authLoginLimiter, async (req, res) => {
     if (u.status === 'SUSPENDED') return res.status(403).json({ error: 'Account suspended' });
     if (!u.emailVerified) return res.status(403).json({ error: 'Verify your email first' });
     const updated = await prisma.user.update({ where: { id: u.id }, data: { lastLoginAt: new Date() } });
-    setSessionCookie(res, sign(updated));
-    res.json({ user: { id: u.id, name: u.name, email: u.email, role: u.role } });
+    const token = sign(updated);
+    setSessionCookie(res, token);
+    res.json({ token, user: { id: u.id, name: u.name, email: u.email, role: u.role } });
   } catch {
     res.status(503).json({ error: 'Authentication service is temporarily unavailable.' });
   }
@@ -137,8 +138,9 @@ app.post('/api/auth/student/login', authLoginLimiter, async (req, res) => {
   if (user.status === 'SUSPENDED') return res.status(403).json({ error: 'This student account is suspended. Contact your administrator.' });
   if (!user.emailVerified || user.status !== 'ACTIVE') return res.status(403).json({ error: 'Verify your student account before signing in.' });
   const updated = await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
-  setSessionCookie(res, sign(updated));
-  res.json({ user: { id: user.id, name: user.name, rollNumber: user.rollNumber, email: user.email, role: user.role } });
+  const token = sign(updated);
+  setSessionCookie(res, token);
+  res.json({ token, user: { id: user.id, name: user.name, rollNumber: user.rollNumber, email: user.email, role: user.role } });
 });
 
 const resetIdentity = z.object({ email: z.string().trim().email(), rollNumber: z.string().trim().min(1), requestId: z.string().uuid() });
