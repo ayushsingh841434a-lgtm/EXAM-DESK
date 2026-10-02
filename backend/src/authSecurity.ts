@@ -73,24 +73,29 @@ export async function sendPasswordResetOtp(email: string, otp: string): Promise<
 }
 
 export async function sendStudentVerificationEmail(email: string, token: string): Promise<void> {
-  const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, SMTP_FROM, API_PUBLIC_URL } = process.env;
-  if (!SMTP_HOST || !SMTP_PORT || !SMTP_FROM || !API_PUBLIC_URL) {
-    throw new Error('SMTP_HOST, SMTP_PORT, SMTP_FROM, and API_PUBLIC_URL must be configured');
+  const { RESEND_API_KEY, SMTP_FROM, API_PUBLIC_URL } = process.env;
+  if (!RESEND_API_KEY || !SMTP_FROM || !API_PUBLIC_URL) {
+    throw new Error('RESEND_API_KEY, SMTP_FROM, and API_PUBLIC_URL must be configured');
   }
 
-  const transporter = nodemailer.createTransport({
-    host: SMTP_HOST,
-    port: Number(SMTP_PORT),
-    secure: process.env.SMTP_SECURE === 'true',
-    family: 4,
-    ...(SMTP_USER && SMTP_PASSWORD ? { auth: { user: SMTP_USER, pass: SMTP_PASSWORD } } : {}),
-  } as any);
   const verificationUrl = `${API_PUBLIC_URL.replace(/\/$/, '')}/api/auth/verify-email/${encodeURIComponent(token)}`;
-
-  await transporter.sendMail({
-    from: SMTP_FROM,
-    to: email,
-    subject: 'Exam Platform - Verify your email',
-    text: `Verify your student account by opening this link:\n\n${verificationUrl}\n\nThis link expires in 24 hours.`,
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${RESEND_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from: SMTP_FROM,
+      to: [email],
+      subject: 'Exam Platform - Verify your email',
+      text: `Verify your student account by opening this link:\n\n${verificationUrl}\n\nThis link expires in 24 hours.`,
+      html: `<p>Verify your student account by opening this link:</p><p><a href="${verificationUrl}">${verificationUrl}</a></p><p>This link expires in 24 hours.</p>`,
+    }),
   });
+
+  if (!response.ok) {
+    const responseText = await response.text().catch(() => '');
+    throw new Error(`Resend email send failed with status ${response.status}: ${responseText.slice(0, 500)}`);
+  }
 }
