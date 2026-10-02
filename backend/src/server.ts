@@ -105,7 +105,8 @@ app.post('/api/auth/register', async (req, res) => {
     if (process.env.NODE_ENV === 'production') {
       try {
         await sendStudentVerificationEmail(email, token);
-      } catch {
+      } catch (error) {
+        console.error('Registration verification email send failed:', error);
         await prisma.user.delete({ where: { id: u.id } });
         return res.status(503).json({ error: 'Verification email could not be sent. Please try again later.' });
       }
