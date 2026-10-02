@@ -82,8 +82,9 @@ export async function sendStudentVerificationEmail(email: string, token: string)
     host: SMTP_HOST,
     port: Number(SMTP_PORT),
     secure: process.env.SMTP_SECURE === 'true',
+    family: 4,
     ...(SMTP_USER && SMTP_PASSWORD ? { auth: { user: SMTP_USER, pass: SMTP_PASSWORD } } : {}),
-  });
+  } as any);
   const verificationUrl = `${API_PUBLIC_URL.replace(/\/$/, '')}/api/auth/verify-email/${encodeURIComponent(token)}`;
 
   await transporter.sendMail({
