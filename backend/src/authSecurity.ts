@@ -73,29 +73,33 @@ export async function sendPasswordResetOtp(email: string, otp: string): Promise<
 }
 
 export async function sendStudentVerificationEmail(email: string, token: string): Promise<void> {
-  const { RESEND_API_KEY, SMTP_FROM, API_PUBLIC_URL } = process.env;
-  if (!RESEND_API_KEY || !SMTP_FROM || !API_PUBLIC_URL) {
-    throw new Error('RESEND_API_KEY, SMTP_FROM, and API_PUBLIC_URL must be configured');
+  const { GOOGLE_APPS_SCRIPT_EMAIL_URL, API_PUBLIC_URL } = process.env;
+  if (!GOOGLE_APPS_SCRIPT_EMAIL_URL || !API_PUBLIC_URL) {
+    throw new Error('GOOGLE_APPS_SCRIPT_EMAIL_URL and API_PUBLIC_URL must be configured');
   }
 
   const verificationUrl = `${API_PUBLIC_URL.replace(/\/$/, '')}/api/auth/verify-email/${encodeURIComponent(token)}`;
-  const response = await fetch('https://api.resend.com/emails', {
+  const emailBody = `Verify your student account by opening this link:\n\n${verificationUrl}\n\nThis link expires in 24 hours.`;
+
+  const response = await fetch(GOOGLE_APPS_SCRIPT_EMAIL_URL, {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${RESEND_API_KEY}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      from: SMTP_FROM,
-      to: [email],
+      to: email,
       subject: 'Exam Platform - Verify your email',
-      text: `Verify your student account by opening this link:\n\n${verificationUrl}\n\nThis link expires in 24 hours.`,
-      html: `<p>Verify your student account by opening this link:</p><p><a href="${verificationUrl}">${verificationUrl}</a></p><p>This link expires in 24 hours.</p>`,
+      text: emailBody,
     }),
   });
 
   if (!response.ok) {
     const responseText = await response.text().catch(() => '');
-    throw new Error(`Resend email send failed with status ${response.status}: ${responseText.slice(0, 500)}`);
+    throw new Error(`Google Apps Script email send failed with status ${response.status}: ${responseText.slice(0, 500)}`);
+  }
+
+  const result = await response.json().catch(() => null);
+  if (result && result.ok === false) {
+    throw new Error(`Google Apps Script reported email failure: ${JSON.stringify(result).slice(0, 500)}`);
   }
 }
