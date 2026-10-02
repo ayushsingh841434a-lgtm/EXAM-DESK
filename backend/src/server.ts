@@ -33,6 +33,7 @@ function getViolationReason(type: ViolationType | string): string {
 }
 
 const app = express();
+app.set('trust proxy', 1);
 const prisma = new PrismaClient();
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me';
 const port = Number(process.env.PORT || 8080);
