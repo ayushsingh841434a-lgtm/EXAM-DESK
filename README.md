@@ -69,13 +69,13 @@ Students register with full name, roll number, email, and password. Email and ro
 
 ### Password reset email
 
-Configure the following backend environment variables to enable password-reset email. Copy `backend/.env.example` as a starting point and use real SMTP credentials; do not commit secrets.
+Password reset OTP and student verification emails use the same Google Apps Script email endpoint. Configure the following backend environment variables. Copy `backend/.env.example` as a starting point; do not commit secret values.
 
-- `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`
-- `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`
+- `GOOGLE_APPS_SCRIPT_EMAIL_URL` (deployed email-handler URL)
+- `API_PUBLIC_URL` (public backend URL used to generate email-verification links)
 - `OTP_HASH_SECRET` (a long random secret, separate from `JWT_SECRET`)
 
-Password reset uses a six-digit OTP expiring after 10 minutes, one-time verification, five verification attempts, a 60-second resend cooldown, and at most three requests per student within 15 minutes. OTPs and reset tokens are stored as hashes. The forgot-password response is generic whether or not the account matches.
+In production, the application checks that both email settings are configured at startup without printing their values. Password reset uses a six-digit OTP expiring after 10 minutes, one-time verification, five verification attempts, a 60-second resend cooldown, and at most three requests per student within 15 minutes. OTPs and reset tokens are stored as hashes. The forgot-password response is generic whether or not the account matches or email delivery succeeds.
 
 Authentication endpoints are under `/api/auth`:
 

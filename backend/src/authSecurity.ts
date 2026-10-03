@@ -1,5 +1,4 @@
 import crypto from 'crypto';
-import nodemailer from 'nodemailer';
 
 export function normalizeEmail(value: string): string {
   return value.trim().toLowerCase();
@@ -53,53 +52,48 @@ export function canVerifyOtp(input: { attempts: number; expiresAt: number; usedA
   return input.attempts < 5 && input.expiresAt > now && input.usedAt === null && input.verifiedAt === null;
 }
 
-export async function sendPasswordResetOtp(email: string, otp: string): Promise<void> {
-  const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, SMTP_FROM } = process.env;
-  if (!SMTP_HOST || !SMTP_PORT || !SMTP_FROM) throw new Error('SMTP_HOST, SMTP_PORT, and SMTP_FROM must be configured');
-
-  const transporter = nodemailer.createTransport({
-    host: SMTP_HOST,
-    port: Number(SMTP_PORT),
-    secure: process.env.SMTP_SECURE === 'true',
-    ...(SMTP_USER && SMTP_PASSWORD ? { auth: { user: SMTP_USER, pass: SMTP_PASSWORD } } : {}),
-  });
-
-  await transporter.sendMail({
-    from: SMTP_FROM,
-    to: email,
-    subject: 'Exam Platform - Password Reset OTP',
-    text: `Your password reset OTP is: ${otp}\n\nThis OTP will expire in 10 minutes.\n\nIf you did not request a password reset, ignore this email.`,
-  });
+export function missingEmailConfiguration(env: NodeJS.ProcessEnv = process.env): string[] {
+  return ['GOOGLE_APPS_SCRIPT_EMAIL_URL', 'API_PUBLIC_URL'].filter((name) => !env[name]?.trim());
 }
 
-export async function sendStudentVerificationEmail(email: string, token: string): Promise<void> {
-  const { GOOGLE_APPS_SCRIPT_EMAIL_URL, API_PUBLIC_URL } = process.env;
-  if (!GOOGLE_APPS_SCRIPT_EMAIL_URL || !API_PUBLIC_URL) {
-    throw new Error('GOOGLE_APPS_SCRIPT_EMAIL_URL and API_PUBLIC_URL must be configured');
+export async function sendEmail(recipient: string, subject: string, text: string): Promise<void> {
+  const { GOOGLE_APPS_SCRIPT_EMAIL_URL } = process.env;
+  const endpoint = GOOGLE_APPS_SCRIPT_EMAIL_URL?.trim();
+  if (!endpoint) {
+    throw new Error('Email configuration is incomplete: GOOGLE_APPS_SCRIPT_EMAIL_URL is missing.');
   }
 
-  const verificationUrl = `${API_PUBLIC_URL.replace(/\/$/, '')}/api/auth/verify-email/${encodeURIComponent(token)}`;
-  const emailBody = `Verify your student account by opening this link:\n\n${verificationUrl}\n\nThis link expires in 24 hours.`;
-
-  const response = await fetch(GOOGLE_APPS_SCRIPT_EMAIL_URL, {
+  const response = await fetch(endpoint, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      to: email,
-      subject: 'Exam Platform - Verify your email',
-      text: emailBody,
-    }),
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ to: recipient, subject, text }),
   });
 
   if (!response.ok) {
-    const responseText = await response.text().catch(() => '');
-    throw new Error(`Google Apps Script email send failed with status ${response.status}: ${responseText.slice(0, 500)}`);
+    throw new Error(`Email provider request failed with status ${response.status}.`);
   }
 
   const result = await response.json().catch(() => null);
   if (result && result.ok === false) {
-    throw new Error(`Google Apps Script reported email failure: ${JSON.stringify(result).slice(0, 500)}`);
+    throw new Error('Email provider reported a delivery failure.');
   }
+}
+
+export async function sendPasswordResetOtp(email: string, otp: string): Promise<void> {
+  await sendEmail(
+    email,
+    'Exam Platform - Password Reset OTP',
+    `Your password reset OTP is: ${otp}\n\nThis OTP will expire in 10 minutes.\n\nIf you did not request a password reset, ignore this email.`,
+  );
+}
+
+export async function sendStudentVerificationEmail(email: string, token: string): Promise<void> {
+  const { API_PUBLIC_URL } = process.env;
+  if (!API_PUBLIC_URL?.trim()) {
+    throw new Error('Email configuration is incomplete: API_PUBLIC_URL is missing.');
+  }
+
+  const verificationUrl = `${API_PUBLIC_URL.trim().replace(/\/$/, '')}/api/auth/verify-email/${encodeURIComponent(token)}`;
+  const emailBody = `Verify your student account by opening this link:\n\n${verificationUrl}\n\nThis link expires in 24 hours.`;
+  await sendEmail(email, 'Exam Platform - Verify your email', emailBody);
 }

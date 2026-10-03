@@ -8,7 +8,7 @@ import rateLimit from 'express-rate-limit';
 import crypto from 'crypto';
 import { Prisma, PrismaClient, Role, TestStatus, AttemptStatus, ViolationType } from '@prisma/client';
 import { z } from 'zod';
-import { canRequestOtp, canVerifyOtp, generateOtp, hashOtp, hashResetToken, normalizeEmail, normalizeName, normalizeRollNumber, secureHashEquals, sendPasswordResetOtp, sendStudentVerificationEmail, studentIdentityMatches, verifyOtp } from './authSecurity';
+import { canRequestOtp, canVerifyOtp, generateOtp, hashOtp, hashResetToken, missingEmailConfiguration, normalizeEmail, normalizeName, normalizeRollNumber, secureHashEquals, sendPasswordResetOtp, sendStudentVerificationEmail, studentIdentityMatches, verifyOtp } from './authSecurity';
 
 const STRICT_TERMINATION_TYPES = new Set<ViolationType | string>([
   ViolationType.TAB_SWITCH,
@@ -37,6 +37,12 @@ app.set('trust proxy', 1);
 const prisma = new PrismaClient();
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me';
 const port = Number(process.env.PORT || 8080);
+const missingEmailConfig = missingEmailConfiguration();
+if (missingEmailConfig.length) {
+  const message = `Email configuration is incomplete: ${missingEmailConfig.join(', ')} ${missingEmailConfig.length === 1 ? 'is' : 'are'} missing.`;
+  if (process.env.NODE_ENV === 'production') throw new Error(message);
+  console.warn(message);
+}
 
 app.use(helmet());
 app.use(cors({ origin: process.env.CORS_ORIGIN?.split(',') || true, credentials: true }));
@@ -105,8 +111,8 @@ app.post('/api/auth/register', async (req, res) => {
     if (process.env.NODE_ENV === 'production') {
       try {
         await sendStudentVerificationEmail(email, token);
-      } catch (error) {
-        console.error('Registration verification email send failed:', error);
+      } catch {
+        console.error('Registration verification email provider request failed.');
         await prisma.user.delete({ where: { id: u.id } });
         return res.status(503).json({ error: 'Verification email could not be sent. Please try again later.' });
       }
@@ -137,7 +143,8 @@ app.post('/api/auth/login', authLoginLimiter, async (req, res) => {
   }
 });
 
-const resetRequestLimiter = rateLimit({ windowMs: 15 * 60_000, max: 3, standardHeaders: true, legacyHeaders: false, message: { message: 'If an account matches the information provided, an OTP has been sent to the registered email.' } });
+const genericResetMessage = 'If the account exists, a password reset OTP has been requested.';
+const resetRequestLimiter = rateLimit({ windowMs: 15 * 60_000, max: 3, standardHeaders: true, legacyHeaders: false, message: { message: genericResetMessage } });
 
 app.post('/api/auth/student/login', authLoginLimiter, async (req, res) => {
   const parsed = z.object({ name: z.string().trim().min(1, 'Full name is required'), rollNumber: z.string().trim().min(1, 'Roll number is required'), email: z.string().trim().email('A valid email address is required'), password: z.string().min(1, 'Password is required') }).safeParse(req.body);
@@ -155,8 +162,6 @@ app.post('/api/auth/student/login', authLoginLimiter, async (req, res) => {
 });
 
 const resetIdentity = z.object({ email: z.string().trim().email(), rollNumber: z.string().trim().min(1), requestId: z.string().uuid() });
-const genericResetMessage = 'If an account matches the information provided, an OTP has been sent to the registered email.';
-
 app.post('/api/auth/forgot-password/request', resetRequestLimiter, async (req, res) => {
   const parsed = z.object({ email: z.string().trim().email(), rollNumber: z.string().trim().min(1) }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Enter a valid registered email and roll number.' });
@@ -174,7 +179,11 @@ app.post('/api/auth/forgot-password/request', resetRequestLimiter, async (req, r
         prisma.passwordResetOtp.updateMany({ where: { studentId: studentUser.id, usedAt: null }, data: { usedAt: now, resetTokenHash: null } }),
         prisma.passwordResetOtp.create({ data: { studentId: studentUser.id, requestId, otpHash: hashOtp(otp), expiresAt: new Date(now.getTime() + 10 * 60_000) } }),
       ]);
-      try { await sendPasswordResetOtp(studentUser.email, otp); } catch { /* Keep responses identical for known and unknown accounts. */ }
+      try {
+        await sendPasswordResetOtp(studentUser.email, otp);
+      } catch {
+        console.error('Password reset email provider request failed.');
+      }
     }
   }
   res.status(202).json({ message: genericResetMessage, requestId });
@@ -496,4 +505,6 @@ app.get('/api/admin/students', admin, async (_req, res) => {
 });
 
 app.use((err: any, _req: Request, res: Response, _next: NextFunction) => res.status(500).json({ error: 'Internal server error' }));
-app.listen(port, () => console.log(`Exam API listening on ${port}`));
+if (process.env.NODE_ENV !== 'test') app.listen(port, () => console.log(`Exam API listening on ${port}`));
+
+export { app, prisma };

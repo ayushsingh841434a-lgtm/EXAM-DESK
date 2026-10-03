@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import bcrypt from 'bcryptjs';
-import { canRequestOtp, canVerifyOtp, generateOtp, hashOtp, hashResetToken, normalizeEmail, normalizeName, normalizeRollNumber, secureHashEquals, studentIdentityMatches, verifyOtp } from './authSecurity';
+import { canRequestOtp, canVerifyOtp, generateOtp, hashOtp, hashResetToken, missingEmailConfiguration, normalizeEmail, normalizeName, normalizeRollNumber, secureHashEquals, sendEmail, sendStudentVerificationEmail, studentIdentityMatches, verifyOtp } from './authSecurity';
 
 process.env.OTP_HASH_SECRET = 'test-only-otp-hash-secret';
 
@@ -61,4 +61,82 @@ test('reset tokens are hashed and password hashes remain one-way', async () => {
   assert.notEqual(passwordHash, password);
   assert.equal(await bcrypt.compare(password, passwordHash), true);
   assert.equal(await bcrypt.compare('wrong-password', passwordHash), false);
+});
+
+test('reports missing email configuration without requiring or exposing values', () => {
+  assert.deepEqual(missingEmailConfiguration({}), ['GOOGLE_APPS_SCRIPT_EMAIL_URL', 'API_PUBLIC_URL']);
+  assert.deepEqual(missingEmailConfiguration({
+    GOOGLE_APPS_SCRIPT_EMAIL_URL: 'https://email-handler.example.invalid/exec',
+    API_PUBLIC_URL: 'https://exam.example.invalid',
+  }), []);
+});
+
+test('sends email through the shared provider without logging message contents', async () => {
+  const previousUrl = process.env.GOOGLE_APPS_SCRIPT_EMAIL_URL;
+  const originalFetch = globalThis.fetch;
+  let requestBody = '';
+  process.env.GOOGLE_APPS_SCRIPT_EMAIL_URL = 'https://email-handler.example.invalid/exec';
+  globalThis.fetch = async (_input, init) => {
+    requestBody = String(init?.body || '');
+    return new Response(JSON.stringify({ ok: true }), { status: 200 });
+  };
+
+  try {
+    await sendEmail('student@example.invalid', 'Password reset', 'Test-only OTP content');
+    assert.deepEqual(JSON.parse(requestBody), {
+      to: 'student@example.invalid',
+      subject: 'Password reset',
+      text: 'Test-only OTP content',
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousUrl === undefined) delete process.env.GOOGLE_APPS_SCRIPT_EMAIL_URL;
+    else process.env.GOOGLE_APPS_SCRIPT_EMAIL_URL = previousUrl;
+  }
+});
+
+test('reports provider failure without including response body content', async () => {
+  const previousUrl = process.env.GOOGLE_APPS_SCRIPT_EMAIL_URL;
+  const originalFetch = globalThis.fetch;
+  process.env.GOOGLE_APPS_SCRIPT_EMAIL_URL = 'https://email-handler.example.invalid/exec';
+  globalThis.fetch = async () => new Response('private response content', { status: 503 });
+
+  try {
+    await assert.rejects(sendEmail('student@example.invalid', 'Password reset', 'Test-only OTP content'), (error: Error) => {
+      assert.equal(error.message, 'Email provider request failed with status 503.');
+      assert.equal(error.message.includes('private response content'), false);
+      return true;
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousUrl === undefined) delete process.env.GOOGLE_APPS_SCRIPT_EMAIL_URL;
+    else process.env.GOOGLE_APPS_SCRIPT_EMAIL_URL = previousUrl;
+  }
+});
+
+test('continues to send verification links through the shared provider', async () => {
+  const previousUrl = process.env.GOOGLE_APPS_SCRIPT_EMAIL_URL;
+  const previousPublicUrl = process.env.API_PUBLIC_URL;
+  const originalFetch = globalThis.fetch;
+  let requestBody = '';
+  process.env.GOOGLE_APPS_SCRIPT_EMAIL_URL = 'https://email-handler.example.invalid/exec';
+  process.env.API_PUBLIC_URL = 'https://exam.example.invalid/';
+  globalThis.fetch = async (_input, init) => {
+    requestBody = String(init?.body || '');
+    return new Response(JSON.stringify({ ok: true }), { status: 200 });
+  };
+
+  try {
+    await sendStudentVerificationEmail('student@example.invalid', 'test-verification-token');
+    const sent = JSON.parse(requestBody);
+    assert.equal(sent.to, 'student@example.invalid');
+    assert.equal(sent.subject, 'Exam Platform - Verify your email');
+    assert.match(sent.text, /https:\/\/exam\.example\.invalid\/api\/auth\/verify-email\/test-verification-token/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousUrl === undefined) delete process.env.GOOGLE_APPS_SCRIPT_EMAIL_URL;
+    else process.env.GOOGLE_APPS_SCRIPT_EMAIL_URL = previousUrl;
+    if (previousPublicUrl === undefined) delete process.env.API_PUBLIC_URL;
+    else process.env.API_PUBLIC_URL = previousPublicUrl;
+  }
 });

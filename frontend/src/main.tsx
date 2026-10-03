@@ -83,7 +83,7 @@ function Login({ onLogin }: { onLogin: (u: any) => void }) {
     try {
       const result = await api('/api/auth/forgot-password/verify-otp', { method: 'POST', body: JSON.stringify({ email: form.email, rollNumber: form.rollNumber, requestId, otp: form.otp }) });
       setResetToken(result.resetToken);
-      setNotice('Email verified. Choose a new password.');
+      setNotice('OTP verified. Choose a new password.');
     } catch (error: any) { setErr(error.message); }
     finally { setBusy(false); }
   }
@@ -137,7 +137,7 @@ function Login({ onLogin }: { onLogin: (u: any) => void }) {
         <button disabled={busy}>{busy ? 'Sending…' : 'Send OTP'}</button>
       </form>}
       {requestId && !resetToken && <form onSubmit={verifyOtp}>
-        <p className="notice" role="status">{notice || 'If an account matches the information provided, an OTP has been sent to the registered email.'}</p>
+        <p className="notice" role="status">{notice || 'If the account exists, a password reset OTP has been requested.'}</p>
         <label>OTP<input inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} required value={form.otp} onChange={e => setField('otp', e.target.value)} /></label>
         {err && <p className="err" role="alert">{err}</p>}
         <button disabled={busy}>{busy ? 'Verifying…' : 'Verify OTP'}</button>
